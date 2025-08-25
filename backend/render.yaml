@@ -1,0 +1,29 @@
+# archivo: render.yaml - Configuración para Render.com
+
+services:
+  - type: web
+    name: calendario-castilla
+    env: python
+    region: ohio  # Más cercano a Guatemala
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
+    
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11
+      - key: TZ
+        value: America/Guatemala
+      - key: DEBUG
+        value: false
+      - key: PORT
+        value: 10000
+        
+    # Health check para Render
+    healthCheckPath: /api/health
+    
+    # Configuración de recursos (plan gratuito)
+    disk:
+      name: castilla-data
+      mountPath: /opt/render/project/src
+      sizeGB: 1
