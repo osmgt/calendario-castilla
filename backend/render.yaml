@@ -1,4 +1,4 @@
-# archivo: render.yaml - Configuración para Render.com
+	# archivo: render.yaml - Configuración para Render.com
 
 services:
   - type: web
