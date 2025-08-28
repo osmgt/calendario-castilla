@@ -43,8 +43,8 @@ class CastillaCalendarComplete:
         # Configuración
         self.config = {
             'update_interval_minutes': 30,
-            'fotmob_team_id': '9825',  # Se actualizará automáticamente
-            'season': '2024-25',
+            'fotmob_team_id': '8367',  # Se actualizará automáticamente
+            'season': '2025-26',
             'notifications_enabled': True,
             'debug_mode': False
         }
@@ -222,10 +222,10 @@ class CastillaCalendarComplete:
             cursor.execute("SELECT COUNT(*) FROM system_config")
             if cursor.fetchone()[0] == 0:
                 default_config = [
-                    ('fotmob_team_id', '9825', 'ID del Real Madrid Castilla en FotMob'),
+                    ('fotmob_team_id', '8367', 'ID del Real Madrid Castilla en FotMob'),
                     ('update_interval_minutes', '30', 'Intervalo entre actualizaciones'),
                     ('timezone', 'America/Guatemala', 'Zona horaria principal'),
-                    ('season', '2024-25', 'Temporada actual'),
+                    ('season', '2025-26', 'Temporada actual'),
                     ('notifications_enabled', '1', 'Activar notificaciones'),
                     ('debug_mode', '0', 'Modo debug'),
                 ]
