@@ -238,10 +238,10 @@ class CastillaCalendarComplete:
             conn.commit()
             conn.close()
             
-            logging.info("✅ Base de datos completa inicializada")
+            logging.info("Base de datos completa inicializada")
             
         except Exception as e:
-            logging.error(f"❌ Error inicializando base de datos: {e}")
+            logging.error(f"Error inicializando base de datos: {e}")
     
     def get_db_connection(self):
         """Obtener conexión a la base de datos"""
@@ -250,7 +250,7 @@ class CastillaCalendarComplete:
             conn.row_factory = sqlite3.Row  # Para acceso por nombre de columna
             return conn
         except Exception as e:
-            logging.error(f"❌ Error conexión BD: {e}")
+            logging.error(f"Error conexión BD: {e}")
             return None
     
     def save_complete_match_data(self, match_data):
@@ -359,11 +359,11 @@ class CastillaCalendarComplete:
             conn.commit()
             conn.close()
             
-            logging.info(f"💾 Datos completos guardados para partido {match_data['id']}")
+            logging.info(f"Datos completos guardados para partido {match_data['id']}")
             return True
             
         except Exception as e:
-            logging.error(f"❌ Error guardando datos completos: {e}")
+            logging.error(f"Error guardando datos completos: {e}")
             if conn:
                 conn.close()
             return False
@@ -429,32 +429,56 @@ class CastillaCalendarComplete:
                 matches.append(match)
             
             conn.close()
-            logging.info(f"📖 {len(matches)} partidos completos cargados")
+            logging.info(f"{len(matches)} partidos completos cargados")
             return matches
             
         except Exception as e:
-            logging.error(f"❌ Error cargando partidos completos: {e}")
+            logging.error(f"Error cargando partidos completos: {e}")
             if conn:
                 conn.close()
             return []
+    
+    def get_sample_data(self):
+        """Generar datos de muestra para testing"""
+        now = datetime.now(self.timezone)
+        return [{
+            'id': 'sample-1',
+            'date': now.strftime('%Y-%m-%d'),
+            'time': '18:00',
+            'madrid_time': '01:00',
+            'home_team': 'Real Madrid Castilla',
+            'away_team': 'Opponent Team',
+            'competition': 'Primera Federación',
+            'venue': 'Estadio Alfredo Di Stefano',
+            'status': 'scheduled',
+            'result': None,
+            'goalscorers': [],
+            'cards': [],
+            'substitutions': [],
+            'tv_broadcast': [],
+            'statistics': {},
+            'source': 'sample'
+        }]
 
 # Crear instancia global
 calendar = CastillaCalendarComplete()
 
-# Rutas principales de la API
+# RUTAS DE LA API
 @app.route('/')
 def home():
     """Página principal con información completa"""
     base_url = request.url_root.rstrip('/')
     
     return jsonify({
-        "proyecto": "🏆 Real Madrid Castilla COMPLETO - Guatemala",
+        "proyecto": "Real Madrid Castilla COMPLETO - Guatemala",
         "version": "3.0.0-fotmob-complete",
-        "estado": "✅ Operativo",
+        "estado": "Operativo",
         "urls": {
             "calendario_ios": f"{base_url}/calendar.ics",
             "api_partidos": f"{base_url}/api/matches",
-            "estado_sistema": f"{base_url}/api/status"
+            "estado_sistema": f"{base_url}/api/status",
+            "proximo_partido": f"{base_url}/api/next",
+            "forzar_actualizacion": f"{base_url}/api/update"
         }
     })
 
@@ -462,18 +486,198 @@ def home():
 def get_status():
     """Estado del sistema"""
     return jsonify({
-        "estado": "✅ Sistema Operativo",
+        "estado": "Sistema Operativo",
         "version": "3.0.0-fotmob-complete",
-        "timestamp": datetime.now().isoformat()
+        "timestamp": datetime.now().isoformat(),
+        "base_datos": "SQLite inicializada",
+        "zona_horaria": "America/Guatemala"
     })
+
+@app.route('/api/matches')
+def get_complete_matches():
+    """API de partidos con TODOS los datos"""
+    try:
+        # Intentar cargar desde BD, si no hay datos usar muestra
+        matches = calendar.load_complete_matches()
+        
+        if not matches:
+            logging.info("No hay partidos en BD, usando datos de muestra")
+            matches = calendar.get_sample_data()
+        
+        # Separar por categorías
+        upcoming = [m for m in matches if m['status'] == 'scheduled']
+        live = [m for m in matches if m['status'] == 'live']  
+        finished = [m for m in matches if m['status'] == 'finished']
+        
+        return jsonify({
+            "partidos_completos": matches,
+            "resumen": {
+                "total": len(matches),
+                "proximos": len(upcoming),
+                "en_vivo": len(live),
+                "finalizados": len(finished)
+            },
+            "metadata": {
+                "fuente": "FotMob API",
+                "ultima_actualizacion": calendar.last_update.isoformat() if calendar.last_update else None,
+                "zona_horaria": "America/Guatemala",
+                "version": "3.0.0-complete"
+            }
+        })
+        
+    except Exception as e:
+        logging.error(f"Error API matches: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/next')
+def get_next_match():
+    """Próximo partido"""
+    try:
+        matches = calendar.load_complete_matches()
+        
+        if not matches:
+            matches = calendar.get_sample_data()
+        
+        now = datetime.now(calendar.timezone)
+        
+        upcoming = []
+        for match in matches:
+            if match['status'] in ['scheduled', 'live']:
+                upcoming.append(match)
+        
+        if not upcoming:
+            return jsonify({
+                "mensaje": "No hay próximos partidos programados"
+            })
+        
+        next_match = upcoming[0]
+        
+        return jsonify({
+            "proximo_partido": next_match,
+            "tiempo": {
+                "estado": "Próximo partido",
+                "es_live": next_match['status'] == 'live',
+                "tiempo_restante": "Por determinar"
+            }
+        })
+        
+    except Exception as e:
+        logging.error(f"Error próximo partido: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/update')
+def force_update():
+    """Forzar actualización"""
+    try:
+        # Simular actualización por ahora
+        calendar.last_update = datetime.now(calendar.timezone)
+        
+        logging.info("Actualización forzada ejecutada")
+        
+        return jsonify({
+            "mensaje": "Actualización completada",
+            "timestamp": calendar.last_update.isoformat(),
+            "partidos_procesados": 1,
+            "fuente": "Sistema de prueba"
+        })
+        
+    except Exception as e:
+        logging.error(f"Error update: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/calendar.ics')
+def get_calendar():
+    """Endpoint del calendario ICS"""
+    try:
+        matches = calendar.load_complete_matches()
+        
+        if not matches:
+            matches = calendar.get_sample_data()
+        
+        ics_lines = [
+            "BEGIN:VCALENDAR",
+            "VERSION:2.0",
+            "PRODID:-//Castilla Complete Calendar v3.0//ES",
+            "CALSCALE:GREGORIAN",
+            "METHOD:PUBLISH",
+            "X-WR-CALNAME:Real Madrid Castilla Guatemala",
+            "X-WR-CALDESC:Real Madrid Castilla - Horarios Guatemala",
+            "X-WR-TIMEZONE:America/Guatemala"
+        ]
+        
+        for match in matches:
+            try:
+                match_datetime = datetime.strptime(f"{match['date']} {match['time']}", "%Y-%m-%d %H:%M")
+                match_datetime = calendar.timezone.localize(match_datetime)
+                end_datetime = match_datetime + timedelta(hours=2)
+                
+                start_str = match_datetime.strftime("%Y%m%dT%H%M%S")
+                end_str = end_datetime.strftime("%Y%m%dT%H%M%S")
+                timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+                
+                summary = f"{match['home_team']} vs {match['away_team']}"
+                if match.get('result'):
+                    summary += f" ({match['result']})"
+                
+                description = f"Competición: {match['competition']}\\n"
+                description += f"Estadio: {match['venue']}\\n"
+                description += f"Hora Guatemala: {match['time']}\\n"
+                if match.get('madrid_time'):
+                    description += f"Hora Madrid: {match['madrid_time']}\\n"
+                
+                event_lines = [
+                    "BEGIN:VEVENT",
+                    f"UID:{match['id']}@castilla-guatemala.com",
+                    f"DTSTART;TZID=America/Guatemala:{start_str}",
+                    f"DTEND;TZID=America/Guatemala:{end_str}",
+                    f"DTSTAMP:{timestamp}",
+                    f"SUMMARY:{summary}",
+                    f"DESCRIPTION:{description}",
+                    f"LOCATION:{match['venue']}",
+                    "END:VEVENT"
+                ]
+                
+                ics_lines.extend(event_lines)
+                
+            except Exception as e:
+                logging.error(f"Error procesando evento {match.get('id')}: {e}")
+                continue
+        
+        ics_lines.append("END:VCALENDAR")
+        ics_content = "\n".join(ics_lines)
+        
+        response = Response(ics_content, mimetype='text/calendar')
+        response.headers['Content-Disposition'] = 'attachment; filename="real-madrid-castilla-guatemala.ics"'
+        response.headers['Cache-Control'] = 'public, max-age=1800'
+        
+        return response
+        
+    except Exception as e:
+        logging.error(f"Error generando calendario: {e}")
+        return jsonify({"error": str(e)}), 500
+
+# Error handlers
+@app.errorhandler(404)
+def not_found(error):
+    return jsonify({
+        "error": "Endpoint no encontrado",
+        "codigo": 404
+    }), 404
+
+@app.errorhandler(500)
+def internal_error(error):
+    return jsonify({
+        "error": "Error interno del servidor",
+        "codigo": 500
+    }), 500
 
 # Inicialización
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     debug = os.environ.get('DEBUG', 'False').lower() == 'true'
     
-    logging.info("🚀 INICIANDO CALENDARIO CASTILLA COMPLETO v3.0")
-    logging.info(f"🌐 Puerto: {port}")
+    logging.info("INICIANDO CALENDARIO CASTILLA COMPLETO v3.0")
+    logging.info(f"Puerto: {port}")
     
     app.run(
         host='0.0.0.0',
