@@ -28,7 +28,7 @@ class FotMobScraper:
         }
         
         # ID del Real Madrid Castilla en FotMob
-        self.castilla_team_id = "9825"  # Verificar este ID
+        self.castilla_team_id = "8367"  # Verificar este ID
         
     def search_team_id(self, team_name="Real Madrid Castilla"):
         """Buscar ID del equipo en FotMob"""
