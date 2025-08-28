@@ -655,6 +655,98 @@ def get_calendar():
     except Exception as e:
         logging.error(f"Error generando calendario: {e}")
         return jsonify({"error": str(e)}), 500
+    
+# Agregar estas rutas al final de tu app.py, después de @app.route('/calendar.ics')
+
+@app.route('/api/test-fotmob')
+def test_fotmob_connection():
+    """Test completo de FotMob"""
+    try:
+        result = calendar.fotmob_scraper.test_connection()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e), "success": False}), 500
+
+@app.route('/api/force-fotmob-update')
+def force_fotmob_update():
+    """Forzar actualización desde FotMob"""
+    try:
+        logging.info("Iniciando actualización forzada desde FotMob")
+        
+        # Buscar Team ID
+        team_id = calendar.fotmob_scraper.search_team_id()
+        logging.info(f"Team ID encontrado: {team_id}")
+        
+        # Obtener partidos de FotMob
+        matches = calendar.fotmob_scraper.get_team_fixtures(team_id)
+        logging.info(f"Partidos obtenidos de FotMob: {len(matches)}")
+        
+        if matches:
+            # Guardar cada partido
+            successful_saves = 0
+            for match in matches:
+                if calendar.save_complete_match_data(match):
+                    successful_saves += 1
+            
+            # Actualizar cache
+            calendar.matches_cache = calendar.load_complete_matches()
+            calendar.last_update = datetime.now(calendar.timezone)
+            
+            return jsonify({
+                "success": True,
+                "mensaje": "Actualización desde FotMob completada",
+                "partidos_encontrados": len(matches),
+                "partidos_guardados": successful_saves,
+                "team_id": team_id,
+                "timestamp": calendar.last_update.isoformat()
+            })
+        else:
+            return jsonify({
+                "success": False,
+                "mensaje": "No se encontraron partidos en FotMob",
+                "team_id": team_id
+            })
+        
+    except Exception as e:
+        logging.error(f"Error en actualización FotMob: {e}")
+        return jsonify({
+            "success": False,
+            "error": str(e),
+            "mensaje": "Error conectando con FotMob"
+        }), 500
+
+@app.route('/api/debug-db')
+def debug_database():
+    """Debug de la base de datos"""
+    try:
+        conn = calendar.get_db_connection()
+        if not conn:
+            return jsonify({"error": "No se pudo conectar a la BD"}), 500
+        
+        cursor = conn.cursor()
+        
+        # Verificar tablas
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        tables = [row[0] for row in cursor.fetchall()]
+        
+        # Contar registros por tabla
+        table_counts = {}
+        for table in tables:
+            cursor.execute(f"SELECT COUNT(*) FROM {table}")
+            table_counts[table] = cursor.fetchone()[0]
+        
+        conn.close()
+        
+        return jsonify({
+            "database_path": calendar.db_path,
+            "tables": tables,
+            "table_counts": table_counts,
+            "cache_size": len(calendar.matches_cache),
+            "last_update": calendar.last_update.isoformat() if calendar.last_update else None
+        })
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500    
 
 # Error handlers
 @app.errorhandler(404)
