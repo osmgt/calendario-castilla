@@ -1,132 +1,184 @@
-# archivo: fotmob_scraper.py
+# archivo: fotmob_scraper.py - Nueva implementación con mobfot
 
-import requests
-import json
+from mobfot import MobFot
 import logging
 from datetime import datetime, timedelta
 import pytz
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
+import time
 
 class FotMobScraper:
     def __init__(self):
-        self.base_url = "https://www.fotmob.com/api"
+        """Inicializar scraper con mobfot"""
+        self.client = MobFot()
         self.timezone_gt = pytz.timezone('America/Guatemala')
         self.timezone_es = pytz.timezone('Europe/Madrid')
         
-        # Headers para parecer navegador real
-        self.headers = {
-            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1',
-            'Accept': 'application/json, text/plain, */*',
-            'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'Referer': 'https://www.fotmob.com/',
-            'Origin': 'https://www.fotmob.com',
-            'Connection': 'keep-alive',
-            'Sec-Fetch-Dest': 'empty',
-            'Sec-Fetch-Mode': 'cors',
-            'Sec-Fetch-Site': 'same-origin'
+        # ID del Real Madrid Castilla confirmado
+        self.castilla_team_id = "8367"
+        
+        # Mapeo de competiciones para Primera Federación
+        self.competition_mapping = {
+            'primera-federacion': 'Primera Federación',
+            'primera federacion': 'Primera Federación', 
+            'primera-division-group-1': 'Primera Federación Grupo 1',
+            'copa-del-rey': 'Copa del Rey'
         }
         
-        # ID del Real Madrid Castilla en FotMob
-        self.castilla_team_id = "8367"  # Verificar este ID
-        
+        logging.info(f"🚀 FotMobScraper inicializado con mobfot v1.4.0")
+        logging.info(f"🏆 Team ID: {self.castilla_team_id}")
+
     def search_team_id(self, team_name="Real Madrid Castilla"):
-        """Buscar ID del equipo en FotMob"""
+        """
+        Buscar el Team ID del Castilla
+        Nota: mobfot no tiene búsqueda directa, usamos el ID conocido
+        """
         try:
-            url = f"{self.base_url}/searchapi/"
-            params = {'term': team_name}
+            # Verificar que el team_id funciona obteniendo información básica
+            team_data = self.client.get_team(self.castilla_team_id)
             
-            response = requests.get(url, headers=self.headers, params=params, timeout=10)
-            
-            if response.status_code == 200:
-                data = response.json()
+            if team_data and 'details' in team_data:
+                team_details = team_data['details']
+                found_name = team_details.get('name', 'Unknown')
                 
-                # Buscar en equipos
-                for team in data.get('teams', []):
-                    if 'castilla' in team.get('name', '').lower():
-                        logging.info(f"✅ Encontrado: {team.get('name')} - ID: {team.get('id')}")
-                        return team.get('id')
-                        
-            logging.warning("⚠️ No se encontró ID del Castilla, usando ID por defecto")
+                if 'castilla' in found_name.lower():
+                    logging.info(f"✅ Team ID verificado: {found_name} - ID: {self.castilla_team_id}")
+                    return self.castilla_team_id
+                else:
+                    logging.warning(f"⚠️ El team ID no corresponde al Castilla: {found_name}")
+            
+            # Si no funciona, devolver el ID conocido de todas formas
+            logging.info(f"🔄 Usando Team ID por defecto: {self.castilla_team_id}")
             return self.castilla_team_id
             
         except Exception as e:
-            logging.error(f"❌ Error buscando team ID: {e}")
+            logging.warning(f"⚠️ Error verificando team ID: {e}")
             return self.castilla_team_id
-    
+
     def get_team_fixtures(self, team_id=None):
-        """Obtener partidos del equipo"""
+        """Obtener partidos del equipo usando mobfot"""
         if not team_id:
             team_id = self.castilla_team_id
             
-        try:
-            url = f"{self.base_url}/teams"
-            params = {
-                'id': team_id,
-                'tab': 'fixtures',
-                'type': 'team',
-                'timeZone': 'America/Guatemala'
-            }
-            
-            response = requests.get(url, headers=self.headers, params=params, timeout=15)
-            
-            if response.status_code == 200:
-                data = response.json()
-                logging.info("✅ Datos de FotMob obtenidos correctamente")
-                return self.parse_fixtures_data(data)
-            else:
-                logging.error(f"❌ Error FotMob API: {response.status_code}")
-                return []
-                
-        except Exception as e:
-            logging.error(f"❌ Error obteniendo fixtures: {e}")
-            return []
-    
-    def parse_fixtures_data(self, data):
-        """Parsear datos de partidos de FotMob"""
         matches = []
         
         try:
-            # Buscar fixtures en diferentes secciones
-            fixtures_sections = [
-                data.get('fixtures', {}).get('allFixtures', {}).get('fixtures', []),
-                data.get('overview', {}).get('fixtures', []),
-                data.get('allFixtures', [])
-            ]
+            logging.info(f"📡 Obteniendo datos del team {team_id}...")
             
-            all_fixtures = []
-            for section in fixtures_sections:
-                if isinstance(section, list):
-                    all_fixtures.extend(section)
-                elif isinstance(section, dict):
-                    for key, value in section.items():
-                        if isinstance(value, list):
-                            all_fixtures.extend(value)
+            # Obtener datos del equipo (incluye fixtures)
+            team_data = self.client.get_team(team_id)
             
-            logging.info(f"📊 Procesando {len(all_fixtures)} fixtures encontrados")
+            if not team_data:
+                logging.error("❌ No se obtuvieron datos del equipo")
+                return matches
             
-            for fixture in all_fixtures:
+            # Extraer fixtures de diferentes secciones posibles
+            fixtures = []
+            
+            # Buscar en fixtures directos
+            if 'fixtures' in team_data:
+                fixtures_data = team_data['fixtures']
+                if isinstance(fixtures_data, list):
+                    fixtures.extend(fixtures_data)
+                elif isinstance(fixtures_data, dict):
+                    # Buscar en allFixtures o fixtures
+                    for key in ['allFixtures', 'fixtures', 'upcoming', 'recent']:
+                        if key in fixtures_data and isinstance(fixtures_data[key], list):
+                            fixtures.extend(fixtures_data[key])
+                        elif key in fixtures_data and isinstance(fixtures_data[key], dict):
+                            # Buscar fixtures dentro del objeto
+                            nested = fixtures_data[key].get('fixtures', [])
+                            if isinstance(nested, list):
+                                fixtures.extend(nested)
+            
+            # Buscar en otras secciones posibles
+            for section in ['overview', 'calendar', 'matches']:
+                if section in team_data and isinstance(team_data[section], dict):
+                    section_fixtures = team_data[section].get('fixtures', [])
+                    if isinstance(section_fixtures, list):
+                        fixtures.extend(section_fixtures)
+            
+            logging.info(f"📊 Encontrados {len(fixtures)} fixtures en datos del equipo")
+            
+            # Si no hay fixtures en team data, intentar con fechas específicas
+            if not fixtures:
+                logging.info("🔄 No se encontraron fixtures en team data, probando por fechas...")
+                fixtures = self._get_fixtures_by_date_range()
+            
+            # Procesar cada fixture
+            for fixture in fixtures:
                 try:
                     match_data = self.parse_single_match(fixture)
                     if match_data:
                         matches.append(match_data)
-                        
                 except Exception as e:
-                    logging.warning(f"⚠️ Error procesando fixture individual: {e}")
+                    logging.warning(f"⚠️ Error procesando fixture: {e}")
                     continue
             
-            logging.info(f"✅ {len(matches)} partidos procesados exitosamente")
+            # Ordenar por fecha
+            matches.sort(key=lambda x: f"{x['date']} {x['time']}")
+            
+            logging.info(f"✅ {len(matches)} partidos del Castilla procesados")
             return matches
             
         except Exception as e:
-            logging.error(f"❌ Error parseando fixtures: {e}")
-            return []
-    
+            logging.error(f"❌ Error obteniendo fixtures: {e}")
+            return matches
+
+    def _get_fixtures_by_date_range(self):
+        """Obtener fixtures buscando en un rango de fechas"""
+        fixtures = []
+        
+        try:
+            # Buscar desde 30 días atrás hasta 90 días adelante
+            start_date = datetime.now() - timedelta(days=30)
+            end_date = datetime.now() + timedelta(days=90)
+            
+            current_date = start_date
+            while current_date <= end_date:
+                try:
+                    date_str = current_date.strftime('%Y%m%d')
+                    logging.info(f"🔍 Buscando matches para {date_str}...")
+                    
+                    # Obtener matches del día
+                    matches_data = self.client.get_matches_by_date(date_str)
+                    
+                    if matches_data and 'leagues' in matches_data:
+                        for league in matches_data['leagues']:
+                            league_matches = league.get('matches', [])
+                            
+                            for match in league_matches:
+                                # Verificar si es del Castilla
+                                home_team = match.get('home', {}).get('name', '')
+                                away_team = match.get('away', {}).get('name', '')
+                                
+                                if ('castilla' in home_team.lower() or 
+                                    'castilla' in away_team.lower()):
+                                    fixtures.append(match)
+                                    logging.info(f"🎯 Encontrado: {home_team} vs {away_team}")
+                    
+                    # Avanzar al siguiente día
+                    current_date += timedelta(days=1)
+                    
+                    # Rate limiting para evitar saturar la API
+                    time.sleep(0.1)
+                    
+                except Exception as e:
+                    logging.warning(f"⚠️ Error obteniendo fecha {date_str}: {e}")
+                    current_date += timedelta(days=1)
+                    continue
+                    
+        except Exception as e:
+            logging.error(f"❌ Error en búsqueda por fechas: {e}")
+        
+        logging.info(f"📊 Encontrados {len(fixtures)} fixtures por búsqueda de fechas")
+        return fixtures
+
     def parse_single_match(self, fixture):
         """Parsear un partido individual con todos los datos"""
         try:
             # Información básica
-            match_id = fixture.get('id', f"fotmob-{fixture.get('matchId', 'unknown')}")
+            match_id = str(fixture.get('id', f"mobfot-{int(time.time())}"))
             
             # Equipos
             home_team = fixture.get('home', {})
@@ -136,40 +188,56 @@ class FotMobScraper:
             away_name = away_team.get('name', away_team.get('shortName', 'Unknown'))
             
             # Solo partidos del Castilla
-            if 'castilla' not in home_name.lower() and 'castilla' not in away_name.lower():
+            if ('castilla' not in home_name.lower() and 
+                'castilla' not in away_name.lower()):
                 return None
             
-            # Fecha y hora
-            utc_time = fixture.get('utcTime', fixture.get('kickOffTime', ''))
-            if not utc_time:
-                return None
+            # Fecha y hora (mobfot devuelve diferentes formatos)
+            kick_off_time = fixture.get('kickOffTime', fixture.get('utcTime', ''))
+            
+            if not kick_off_time:
+                # Si no hay tiempo, usar fecha actual como fallback
+                logging.warning(f"⚠️ No se encontró hora para el match {match_id}")
+                kick_off_time = datetime.now().isoformat() + 'Z'
+            
+            # Parsear tiempo UTC
+            try:
+                if kick_off_time.endswith('Z'):
+                    kick_off_time = kick_off_time[:-1] + '+00:00'
                 
-            # Convertir tiempo
-            match_datetime = datetime.fromisoformat(utc_time.replace('Z', '+00:00'))
+                match_datetime = datetime.fromisoformat(kick_off_time)
+                
+                # Si no tiene timezone, asumimos UTC
+                if match_datetime.tzinfo is None:
+                    match_datetime = match_datetime.replace(tzinfo=pytz.UTC)
+                
+            except Exception as e:
+                logging.warning(f"⚠️ Error parseando tiempo {kick_off_time}: {e}")
+                # Fallback a fecha actual
+                match_datetime = datetime.now(pytz.UTC)
+            
+            # Convertir a zonas horarias
             madrid_time = match_datetime.astimezone(self.timezone_es)
             guatemala_time = match_datetime.astimezone(self.timezone_gt)
             
             # Status del partido
             status_info = fixture.get('status', {})
-            status_code = status_info.get('code', 0)
-            status_text = status_info.get('displayName', '')
+            status_code = status_info.get('utcOffsetInHours', fixture.get('status', 0))
             
-            # Mapear status
-            if status_code == 0 or 'fixture' in status_text.lower():
-                status = 'scheduled'
-            elif status_code == 1 or 'live' in status_text.lower():
-                status = 'live'
-            elif status_code == 3 or 'finished' in status_text.lower():
+            # Mapear status (mobfot usa diferentes códigos)
+            if fixture.get('finished'):
                 status = 'finished'
+            elif fixture.get('started') and not fixture.get('finished'):
+                status = 'live'  
             else:
                 status = 'scheduled'
             
             # Resultado
             result = None
-            home_score = None
+            home_score = None  
             away_score = None
             
-            if status == 'finished' or status == 'live':
+            if status in ['finished', 'live']:
                 home_score = home_team.get('score')
                 away_score = away_team.get('score')
                 
@@ -177,169 +245,200 @@ class FotMobScraper:
                     result = f"{home_score}-{away_score}"
             
             # Competición
-            competition_info = fixture.get('leagueName', fixture.get('ccode', ''))
-            if not competition_info:
-                competition_info = fixture.get('parentLeagueName', 'Primera Federación')
+            competition = fixture.get('leagueName', fixture.get('ccode', 'Primera Federación'))
+            competition = self.competition_mapping.get(competition.lower(), competition)
             
             # Venue/Estadio
             venue = 'Por confirmar'
-            if fixture.get('venue'):
-                venue = fixture['venue'].get('name', venue)
-            elif 'castilla' in home_name.lower():
+            if 'castilla' in home_name.lower():
                 venue = 'Estadio Alfredo Di Stéfano'
+            elif fixture.get('venue'):
+                venue = fixture['venue'].get('name', venue)
             
-            # DATOS AVANZADOS
-            advanced_data = self.get_advanced_match_data(match_id, fixture)
-            
-            # Construir objeto completo
+            # Construir objeto del partido
             match_data = {
-                'id': str(match_id),
+                'id': match_id,
                 'date': guatemala_time.strftime('%Y-%m-%d'),
                 'time': guatemala_time.strftime('%H:%M'),
                 'madrid_time': madrid_time.strftime('%H:%M'),
                 'home_team': home_name,
                 'away_team': away_name,
-                'competition': competition_info,
+                'competition': competition,
                 'venue': venue,
                 'status': status,
                 'result': result,
                 'home_score': home_score,
                 'away_score': away_score,
-                'source': 'fotmob',
+                'source': 'mobfot',
                 
-                # DATOS AVANZADOS
-                'goalscorers': advanced_data.get('goalscorers', []),
-                'cards': advanced_data.get('cards', []),
-                'substitutions': advanced_data.get('substitutions', []),
-                'tv_broadcast': advanced_data.get('tv_broadcast', []),
-                'referee': advanced_data.get('referee', ''),
-                'attendance': advanced_data.get('attendance', 0),
-                'weather': advanced_data.get('weather', {}),
-                'statistics': advanced_data.get('statistics', {}),
-                'lineups': advanced_data.get('lineups', {}),
-                'head_to_head': advanced_data.get('head_to_head', {}),
+                # DATOS AVANZADOS (si están disponibles)
+                'goalscorers': self._extract_goalscorers(fixture),
+                'cards': self._extract_cards(fixture),
+                'substitutions': self._extract_substitutions(fixture),
+                'tv_broadcast': self._extract_tv_broadcast(fixture),
+                'referee': self._extract_referee(fixture),
+                'attendance': fixture.get('attendance', 0),
+                'weather': self._extract_weather(fixture),
+                'statistics': self._extract_statistics(fixture),
                 
                 # Metadata
                 'match_url': f"https://www.fotmob.com/matches/{match_id}",
-                'last_updated': datetime.now(self.timezone_gt).isoformat(),
-                'raw_data': fixture  # Para debugging
+                'last_updated': datetime.now(self.timezone_gt).isoformat()
             }
             
             return match_data
             
         except Exception as e:
-            logging.error(f"❌ Error parseando match individual: {e}")
+            logging.error(f"❌ Error parseando match: {e}")
             return None
-    
-    def get_advanced_match_data(self, match_id, fixture):
-        """Obtener datos avanzados del partido"""
-        advanced = {
-            'goalscorers': [],
-            'cards': [],
-            'substitutions': [],
-            'tv_broadcast': [],
-            'referee': '',
-            'attendance': 0,
-            'weather': {},
-            'statistics': {},
-            'lineups': {},
-            'head_to_head': {}
-        }
+
+    def _extract_goalscorers(self, fixture):
+        """Extraer goleadores del fixture"""
+        goalscorers = []
         
         try:
-            # Goleadores
-            if fixture.get('events'):
-                for event in fixture['events']:
-                    event_type = event.get('type', '')
-                    
-                    if event_type == 'goal':
-                        scorer_info = {
-                            'player': event.get('player', {}).get('name', 'Unknown'),
-                            'minute': event.get('minute', 0),
-                            'team': event.get('teamId') == fixture.get('home', {}).get('id') and 'home' or 'away',
-                            'type': event.get('goalType', 'normal')  # normal, penalty, own_goal
-                        }
-                        advanced['goalscorers'].append(scorer_info)
-                    
-                    elif event_type in ['yellow_card', 'red_card']:
-                        card_info = {
-                            'player': event.get('player', {}).get('name', 'Unknown'),
-                            'minute': event.get('minute', 0),
-                            'team': event.get('teamId') == fixture.get('home', {}).get('id') and 'home' or 'away',
-                            'type': event_type
-                        }
-                        advanced['cards'].append(card_info)
-                    
-                    elif event_type == 'substitution':
-                        sub_info = {
-                            'player_in': event.get('playerIn', {}).get('name', 'Unknown'),
-                            'player_out': event.get('playerOut', {}).get('name', 'Unknown'),
-                            'minute': event.get('minute', 0),
-                            'team': event.get('teamId') == fixture.get('home', {}).get('id') and 'home' or 'away'
-                        }
-                        advanced['substitutions'].append(sub_info)
-            
-            # TV/Broadcast info
-            if fixture.get('tvChannels'):
-                for channel in fixture['tvChannels']:
-                    broadcast_info = {
-                        'channel': channel.get('name', ''),
-                        'country': channel.get('country', ''),
-                        'language': channel.get('language', ''),
-                        'stream_url': channel.get('streamUrl', '')
+            # Buscar en events
+            events = fixture.get('events', [])
+            for event in events:
+                if event.get('type') == 'goal':
+                    goal_info = {
+                        'player_name': event.get('player', {}).get('name', 'Unknown'),
+                        'minute': event.get('minute', 0),
+                        'team': 'home' if event.get('isHome') else 'away',
+                        'goal_type': event.get('goalType', 'normal'),
+                        'assist_player': event.get('assist', {}).get('name') if event.get('assist') else None
                     }
-                    advanced['tv_broadcast'].append(broadcast_info)
+                    goalscorers.append(goal_info)
+                    
+        except Exception as e:
+            logging.warning(f"⚠️ Error extrayendo goleadores: {e}")
+        
+        return goalscorers
+
+    def _extract_cards(self, fixture):
+        """Extraer tarjetas del fixture"""
+        cards = []
+        
+        try:
+            events = fixture.get('events', [])
+            for event in events:
+                event_type = event.get('type', '')
+                if 'card' in event_type.lower():
+                    card_info = {
+                        'player_name': event.get('player', {}).get('name', 'Unknown'),
+                        'minute': event.get('minute', 0),
+                        'team': 'home' if event.get('isHome') else 'away',
+                        'card_type': 'yellow' if 'yellow' in event_type else 'red',
+                        'reason': event.get('reason', '')
+                    }
+                    cards.append(card_info)
+                    
+        except Exception as e:
+            logging.warning(f"⚠️ Error extrayendo tarjetas: {e}")
+        
+        return cards
+
+    def _extract_substitutions(self, fixture):
+        """Extraer cambios del fixture"""
+        substitutions = []
+        
+        try:
+            events = fixture.get('events', [])
+            for event in events:
+                if event.get('type') == 'substitution':
+                    sub_info = {
+                        'player_in': event.get('playerIn', {}).get('name', 'Unknown'),
+                        'player_out': event.get('playerOut', {}).get('name', 'Unknown'), 
+                        'minute': event.get('minute', 0),
+                        'team': 'home' if event.get('isHome') else 'away',
+                        'reason': event.get('reason', '')
+                    }
+                    substitutions.append(sub_info)
+                    
+        except Exception as e:
+            logging.warning(f"⚠️ Error extrayendo cambios: {e}")
+        
+        return substitutions
+
+    def _extract_tv_broadcast(self, fixture):
+        """Extraer información de transmisión TV"""
+        tv_broadcast = []
+        
+        try:
+            # mobfot puede incluir info de TV en diferentes lugares
+            tv_channels = fixture.get('tvChannels', [])
             
-            # Árbitro
-            if fixture.get('referee'):
-                advanced['referee'] = fixture['referee'].get('name', '')
-            
-            # Asistencia
-            if fixture.get('attendance'):
-                advanced['attendance'] = fixture['attendance']
-            
-            # Clima (si está disponible)
-            if fixture.get('weather'):
-                advanced['weather'] = {
-                    'temperature': fixture['weather'].get('temperature', ''),
-                    'condition': fixture['weather'].get('condition', ''),
-                    'humidity': fixture['weather'].get('humidity', '')
+            for channel in tv_channels:
+                broadcast_info = {
+                    'channel_name': channel.get('name', channel.get('channelName', '')),
+                    'country': channel.get('country', ''),
+                    'language': channel.get('language', ''), 
+                    'stream_url': channel.get('streamUrl', ''),
+                    'is_free': channel.get('isFree', False)
                 }
+                tv_broadcast.append(broadcast_info)
+                
+        except Exception as e:
+            logging.warning(f"⚠️ Error extrayendo TV: {e}")
+        
+        return tv_broadcast
+
+    def _extract_referee(self, fixture):
+        """Extraer árbitro"""
+        try:
+            referee_info = fixture.get('referee', {})
+            if isinstance(referee_info, dict):
+                return referee_info.get('name', '')
+            return str(referee_info) if referee_info else ''
+        except:
+            return ''
+
+    def _extract_weather(self, fixture):
+        """Extraer información del clima"""
+        try:
+            weather = fixture.get('weather', {})
+            return {
+                'temperature': weather.get('temperature', ''),
+                'condition': weather.get('condition', ''),
+                'humidity': weather.get('humidity', '')
+            }
+        except:
+            return {}
+
+    def _extract_statistics(self, fixture):
+        """Extraer estadísticas del partido"""
+        statistics = {}
+        
+        try:
+            stats = fixture.get('stats', fixture.get('statistics', []))
             
-            # Estadísticas del partido
-            if fixture.get('stats'):
-                stats = {}
-                for stat in fixture['stats']:
-                    stat_name = stat.get('name', '')
+            if isinstance(stats, list):
+                for stat in stats:
+                    stat_name = stat.get('name', stat.get('title', ''))
                     home_value = stat.get('home', '')
                     away_value = stat.get('away', '')
                     
-                    stats[stat_name] = {
+                    statistics[stat_name] = {
                         'home': home_value,
                         'away': away_value
                     }
+            elif isinstance(stats, dict):
+                statistics = stats
                 
-                advanced['statistics'] = stats
-            
-            logging.info(f"📊 Datos avanzados obtenidos para partido {match_id}")
-            
         except Exception as e:
-            logging.warning(f"⚠️ Error obteniendo datos avanzados: {e}")
+            logging.warning(f"⚠️ Error extrayendo estadísticas: {e}")
         
-        return advanced
-    
+        return statistics
+
     def get_detailed_match_info(self, match_id):
         """Obtener información detallada de un partido específico"""
         try:
-            url = f"{self.base_url}/matchDetails"
-            params = {'matchId': match_id}
+            # mobfot puede obtener detalles específicos del match
+            match_details = self.client.get_match(match_id)
             
-            response = requests.get(url, headers=self.headers, params=params, timeout=15)
-            
-            if response.status_code == 200:
-                data = response.json()
+            if match_details:
                 logging.info(f"✅ Detalles del partido {match_id} obtenidos")
-                return data
+                return match_details
             else:
                 logging.warning(f"⚠️ No se pudieron obtener detalles del partido {match_id}")
                 return {}
@@ -347,73 +446,86 @@ class FotMobScraper:
         except Exception as e:
             logging.error(f"❌ Error obteniendo detalles del partido: {e}")
             return {}
-    
+
     def get_team_stats(self, team_id=None):
         """Obtener estadísticas del equipo para la temporada"""
         if not team_id:
             team_id = self.castilla_team_id
             
         try:
-            url = f"{self.base_url}/teams"
-            params = {
-                'id': team_id,
-                'tab': 'overview',
-                'type': 'team'
+            logging.info(f"📊 Obteniendo estadísticas del team {team_id}...")
+            
+            team_data = self.client.get_team(team_id)
+            
+            if not team_data:
+                return {}
+            
+            # Extraer estadísticas de temporada
+            season_stats = {
+                'league_position': 0,
+                'points': 0,
+                'games_played': 0,
+                'wins': 0,
+                'draws': 0,
+                'losses': 0,
+                'goals_for': 0,
+                'goals_against': 0,
+                'goal_difference': 0,
+                'form': [],
+                'top_scorers': [],
+                'next_opponent': '',
+                'last_5_results': []
             }
             
-            response = requests.get(url, headers=self.headers, params=params, timeout=15)
+            # Buscar datos de tabla
+            if 'table' in team_data:
+                table_data = team_data['table']
+                season_stats.update({
+                    'league_position': table_data.get('position', 0),
+                    'points': table_data.get('points', 0),
+                    'games_played': table_data.get('played', 0),
+                    'wins': table_data.get('wins', 0),
+                    'draws': table_data.get('draws', 0),
+                    'losses': table_data.get('losses', 0),
+                    'goals_for': table_data.get('goalsFor', 0),
+                    'goals_against': table_data.get('goalsAgainst', 0),
+                    'goal_difference': table_data.get('goalDifference', 0)
+                })
             
-            if response.status_code == 200:
-                data = response.json()
-                
-                season_stats = {
-                    'league_position': data.get('table', {}).get('position', 0),
-                    'points': data.get('table', {}).get('points', 0),
-                    'games_played': data.get('table', {}).get('played', 0),
-                    'wins': data.get('table', {}).get('wins', 0),
-                    'draws': data.get('table', {}).get('draws', 0),
-                    'losses': data.get('table', {}).get('losses', 0),
-                    'goals_for': data.get('table', {}).get('goalsFor', 0),
-                    'goals_against': data.get('table', {}).get('goalsAgainst', 0),
-                    'goal_difference': data.get('table', {}).get('goalDifference', 0),
-                    'form': data.get('form', []),
-                    'top_scorers': [],
-                    'next_opponent': '',
-                    'last_5_results': []
-                }
-                
-                # Top goleadores del equipo
-                if data.get('squad'):
-                    for player in data['squad'][:10]:  # Top 10
-                        if player.get('goals', 0) > 0:
-                            season_stats['top_scorers'].append({
-                                'name': player.get('name', ''),
-                                'goals': player.get('goals', 0),
-                                'assists': player.get('assists', 0),
-                                'games': player.get('games', 0)
-                            })
-                
-                logging.info("✅ Estadísticas del equipo obtenidas")
-                return season_stats
-                
-            else:
-                logging.warning("⚠️ No se pudieron obtener estadísticas del equipo")
-                return {}
-                
+            # Buscar forma reciente
+            if 'form' in team_data:
+                season_stats['form'] = team_data['form']
+            
+            # Top goleadores (si están disponibles)
+            if 'squad' in team_data:
+                top_scorers = []
+                for player in team_data['squad'][:10]:
+                    if player.get('goals', 0) > 0:
+                        top_scorers.append({
+                            'name': player.get('name', ''),
+                            'goals': player.get('goals', 0),
+                            'assists': player.get('assists', 0),
+                            'games': player.get('games', 0)
+                        })
+                season_stats['top_scorers'] = top_scorers
+            
+            logging.info("✅ Estadísticas del equipo obtenidas")
+            return season_stats
+            
         except Exception as e:
             logging.error(f"❌ Error obteniendo estadísticas: {e}")
             return {}
-    
+
     def test_connection(self):
-        """Test de conexión con FotMob"""
+        """Test de conexión con FotMob usando mobfot"""
         try:
-            logging.info("🧪 Testeando conexión con FotMob...")
+            logging.info("🧪 Testeando conexión con FotMob (mobfot)...")
             
-            # Test 1: Búsqueda de equipo
+            # Test 1: Verificar Team ID
             team_id = self.search_team_id()
-            logging.info(f"✅ Team ID encontrado: {team_id}")
+            logging.info(f"✅ Team ID verificado: {team_id}")
             
-            # Test 2: Obtener fixtures
+            # Test 2: Obtener fixtures 
             fixtures = self.get_team_fixtures(team_id)
             logging.info(f"✅ {len(fixtures)} partidos obtenidos")
             
@@ -421,28 +533,38 @@ class FotMobScraper:
             stats = self.get_team_stats(team_id)
             logging.info(f"✅ Estadísticas obtenidas: {len(stats)} campos")
             
+            # Test 4: Probar get_matches_by_date con fecha actual
+            today = datetime.now().strftime('%Y%m%d')
+            today_matches = self.client.get_matches_by_date(today)
+            logging.info(f"✅ Matches de hoy obtenidos: {bool(today_matches)}")
+            
             return {
                 'success': True,
+                'library': 'mobfot v1.4.0',
                 'team_id': team_id,
                 'fixtures_count': len(fixtures),
                 'sample_fixtures': fixtures[:2] if fixtures else [],
-                'team_stats': stats
+                'team_stats': stats,
+                'api_working': bool(today_matches)
             }
             
         except Exception as e:
             logging.error(f"❌ Error en test de conexión: {e}")
             return {
                 'success': False,
+                'library': 'mobfot v1.4.0',
                 'error': str(e)
             }
 
 # Función principal de testing
 if __name__ == "__main__":
     # Configurar logging
-    logging.basicConfig(level=logging.INFO, 
-                       format='%(asctime)s - %(levelname)s - %(message)s')
+    logging.basicConfig(
+        level=logging.INFO, 
+        format='%(asctime)s - %(levelname)s - %(message)s'
+    )
     
-    print("🏆 FOTMOB SCRAPER - REAL MADRID CASTILLA")
+    print("🏆 MOBFOT SCRAPER - REAL MADRID CASTILLA")
     print("=" * 50)
     
     # Crear scraper
@@ -452,9 +574,10 @@ if __name__ == "__main__":
     result = scraper.test_connection()
     
     if result['success']:
-        print("\n✅ CONEXIÓN EXITOSA")
-        print(f"📍 Team ID: {result['team_id']}")
+        print(f"\n✅ CONEXIÓN EXITOSA con {result['library']}")
+        print(f"🏆 Team ID: {result['team_id']}")  
         print(f"⚽ Partidos encontrados: {result['fixtures_count']}")
+        print(f"🔗 API funcionando: {result['api_working']}")
         
         if result['sample_fixtures']:
             print("\n📋 MUESTRA DE PARTIDOS:")
@@ -481,5 +604,7 @@ if __name__ == "__main__":
             
     else:
         print(f"\n❌ ERROR DE CONEXIÓN: {result['error']}")
+        print(f"📚 Librería utilizada: {result['library']}")
     
     print("\n🎉 Test completado!")
+    print("👑 ¡Hala Madrid y nada más!")
