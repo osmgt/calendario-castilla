@@ -1,4 +1,4 @@
-# archivo: fotmob_scraper.py - Nueva implementación con mobfot
+# archivo: fotmob_scraper.py - Versión mejorada contra error 401
 
 from mobfot import MobFot
 import logging
@@ -6,11 +6,32 @@ from datetime import datetime, timedelta
 import pytz
 from typing import List, Dict, Optional, Any
 import time
+import requests
 
 class FotMobScraper:
     def __init__(self):
-        """Inicializar scraper con mobfot"""
+        """Inicializar scraper con mobfot mejorado"""
+        
+        # Configurar mobfot con headers mejorados
         self.client = MobFot()
+        
+        # Configurar session personalizada con headers más realistas
+        self.session = requests.Session()
+        self.session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+            'Accept': 'application/json, text/plain, */*',
+            'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Referer': 'https://www.fotmob.com/',
+            'Origin': 'https://www.fotmob.com',
+            'Connection': 'keep-alive',
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Site': 'same-origin',
+            'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache'
+        })
+        
         self.timezone_gt = pytz.timezone('America/Guatemala')
         self.timezone_es = pytz.timezone('Europe/Madrid')
         
@@ -25,29 +46,58 @@ class FotMobScraper:
             'copa-del-rey': 'Copa del Rey'
         }
         
-        logging.info(f"🚀 FotMobScraper inicializado con mobfot v1.4.0")
+        logging.info(f"🚀 FotMobScraper inicializado con mobfot v1.4.0 + headers mejorados")
         logging.info(f"🏆 Team ID: {self.castilla_team_id}")
 
-    def search_team_id(self, team_name="Real Madrid Castilla"):
-        """
-        Buscar el Team ID del Castilla
-        Nota: mobfot no tiene búsqueda directa, usamos el ID conocido
-        """
-        try:
-            # Verificar que el team_id funciona obteniendo información básica
-            team_data = self.client.get_team(self.castilla_team_id)
-            
-            if team_data and 'details' in team_data:
-                team_details = team_data['details']
-                found_name = team_details.get('name', 'Unknown')
+    def _make_request(self, url, params=None, max_retries=3):
+        """Hacer petición HTTP con reintentos y rate limiting"""
+        for attempt in range(max_retries):
+            try:
+                # Delay entre peticiones para evitar rate limiting
+                if attempt > 0:
+                    delay = 2 ** attempt  # Exponential backoff
+                    logging.info(f"⏰ Esperando {delay}s antes del intento {attempt + 1}")
+                    time.sleep(delay)
                 
-                if 'castilla' in found_name.lower():
-                    logging.info(f"✅ Team ID verificado: {found_name} - ID: {self.castilla_team_id}")
-                    return self.castilla_team_id
+                response = self.session.get(url, params=params, timeout=15)
+                
+                if response.status_code == 200:
+                    return response.json()
+                elif response.status_code == 401:
+                    logging.warning(f"⚠️ Error 401 en intento {attempt + 1}")
+                    continue
+                elif response.status_code == 429:
+                    logging.warning(f"⚠️ Rate limit en intento {attempt + 1}")
+                    time.sleep(5)
+                    continue
                 else:
-                    logging.warning(f"⚠️ El team ID no corresponde al Castilla: {found_name}")
+                    logging.warning(f"⚠️ HTTP {response.status_code} en intento {attempt + 1}")
+                    continue
+                    
+            except Exception as e:
+                logging.warning(f"⚠️ Error en petición intento {attempt + 1}: {e}")
+                continue
+        
+        logging.error(f"❌ Falló después de {max_retries} intentos")
+        return None
+
+    def search_team_id(self, team_name="Real Madrid Castilla"):
+        """Buscar el Team ID del Castilla con API manual"""
+        try:
+            # Usar API directa en lugar de mobfot para evitar 401
+            url = "https://www.fotmob.com/api/searchapi"
+            params = {'term': 'Real Madrid Castilla'}
             
-            # Si no funciona, devolver el ID conocido de todas formas
+            data = self._make_request(url, params)
+            
+            if data and 'teams' in data:
+                for team in data['teams']:
+                    if 'castilla' in team.get('name', '').lower():
+                        team_id = str(team.get('id'))
+                        logging.info(f"✅ Team ID encontrado: {team.get('name')} - ID: {team_id}")
+                        return team_id
+            
+            # Fallback al ID conocido
             logging.info(f"🔄 Usando Team ID por defecto: {self.castilla_team_id}")
             return self.castilla_team_id
             
@@ -56,53 +106,52 @@ class FotMobScraper:
             return self.castilla_team_id
 
     def get_team_fixtures(self, team_id=None):
-        """Obtener partidos del equipo usando mobfot"""
+        """Obtener partidos del equipo usando API directa"""
         if not team_id:
             team_id = self.castilla_team_id
             
         matches = []
         
         try:
-            logging.info(f"📡 Obteniendo datos del team {team_id}...")
+            logging.info(f"📡 Obteniendo datos del team {team_id} con API directa...")
             
-            # Obtener datos del equipo (incluye fixtures)
-            team_data = self.client.get_team(team_id)
+            # Usar API directa de FotMob
+            url = "https://www.fotmob.com/api/teams"
+            params = {
+                'id': team_id,
+                'tab': 'fixtures',
+                'type': 'team'
+            }
+            
+            team_data = self._make_request(url, params)
             
             if not team_data:
                 logging.error("❌ No se obtuvieron datos del equipo")
-                return matches
+                return self._get_fixtures_by_date_range()
             
-            # Extraer fixtures de diferentes secciones posibles
+            # Extraer fixtures
             fixtures = []
             
-            # Buscar en fixtures directos
+            # Buscar en diferentes estructuras de datos
             if 'fixtures' in team_data:
-                fixtures_data = team_data['fixtures']
-                if isinstance(fixtures_data, list):
-                    fixtures.extend(fixtures_data)
-                elif isinstance(fixtures_data, dict):
-                    # Buscar en allFixtures o fixtures
+                fixtures_section = team_data['fixtures']
+                
+                if isinstance(fixtures_section, list):
+                    fixtures.extend(fixtures_section)
+                elif isinstance(fixtures_section, dict):
                     for key in ['allFixtures', 'fixtures', 'upcoming', 'recent']:
-                        if key in fixtures_data and isinstance(fixtures_data[key], list):
-                            fixtures.extend(fixtures_data[key])
-                        elif key in fixtures_data and isinstance(fixtures_data[key], dict):
-                            # Buscar fixtures dentro del objeto
-                            nested = fixtures_data[key].get('fixtures', [])
-                            if isinstance(nested, list):
-                                fixtures.extend(nested)
-            
-            # Buscar en otras secciones posibles
-            for section in ['overview', 'calendar', 'matches']:
-                if section in team_data and isinstance(team_data[section], dict):
-                    section_fixtures = team_data[section].get('fixtures', [])
-                    if isinstance(section_fixtures, list):
-                        fixtures.extend(section_fixtures)
+                        if key in fixtures_section:
+                            section_data = fixtures_section[key]
+                            if isinstance(section_data, list):
+                                fixtures.extend(section_data)
+                            elif isinstance(section_data, dict) and 'fixtures' in section_data:
+                                fixtures.extend(section_data['fixtures'])
             
             logging.info(f"📊 Encontrados {len(fixtures)} fixtures en datos del equipo")
             
-            # Si no hay fixtures en team data, intentar con fechas específicas
+            # Si no hay fixtures, intentar búsqueda por fechas
             if not fixtures:
-                logging.info("🔄 No se encontraron fixtures en team data, probando por fechas...")
+                logging.info("🔄 No se encontraron fixtures, probando búsqueda por fechas...")
                 fixtures = self._get_fixtures_by_date_range()
             
             # Procesar cada fixture
@@ -126,22 +175,32 @@ class FotMobScraper:
             return matches
 
     def _get_fixtures_by_date_range(self):
-        """Obtener fixtures buscando en un rango de fechas"""
+        """Obtener fixtures buscando por rango de fechas con API directa"""
         fixtures = []
         
         try:
-            # Buscar desde 30 días atrás hasta 90 días adelante
-            start_date = datetime.now() - timedelta(days=30)
-            end_date = datetime.now() + timedelta(days=90)
+            # Buscar en un rango más corto para reducir peticiones
+            start_date = datetime.now() - timedelta(days=7)
+            end_date = datetime.now() + timedelta(days=30)
             
             current_date = start_date
-            while current_date <= end_date:
+            request_count = 0
+            max_requests = 10  # Limitar peticiones
+            
+            while current_date <= end_date and request_count < max_requests:
                 try:
                     date_str = current_date.strftime('%Y%m%d')
                     logging.info(f"🔍 Buscando matches para {date_str}...")
                     
-                    # Obtener matches del día
-                    matches_data = self.client.get_matches_by_date(date_str)
+                    # API directa para matches por fecha
+                    url = "https://www.fotmob.com/api/matches"
+                    params = {
+                        'date': date_str,
+                        'timezone': 'America/Guatemala'
+                    }
+                    
+                    matches_data = self._make_request(url, params)
+                    request_count += 1
                     
                     if matches_data and 'leagues' in matches_data:
                         for league in matches_data['leagues']:
@@ -157,11 +216,9 @@ class FotMobScraper:
                                     fixtures.append(match)
                                     logging.info(f"🎯 Encontrado: {home_team} vs {away_team}")
                     
-                    # Avanzar al siguiente día
+                    # Avanzar día con delay
                     current_date += timedelta(days=1)
-                    
-                    # Rate limiting para evitar saturar la API
-                    time.sleep(0.1)
+                    time.sleep(0.5)  # Delay entre peticiones
                     
                 except Exception as e:
                     logging.warning(f"⚠️ Error obteniendo fecha {date_str}: {e}")
@@ -178,7 +235,7 @@ class FotMobScraper:
         """Parsear un partido individual con todos los datos"""
         try:
             # Información básica
-            match_id = str(fixture.get('id', f"mobfot-{int(time.time())}"))
+            match_id = str(fixture.get('id', f"direct-{int(time.time())}"))
             
             # Equipos
             home_team = fixture.get('home', {})
@@ -192,11 +249,12 @@ class FotMobScraper:
                 'castilla' not in away_name.lower()):
                 return None
             
-            # Fecha y hora (mobfot devuelve diferentes formatos)
-            kick_off_time = fixture.get('kickOffTime', fixture.get('utcTime', ''))
+            # Fecha y hora
+            kick_off_time = fixture.get('status', {}).get('utcTime', 
+                                      fixture.get('kickOffTime', 
+                                                fixture.get('utcTime', '')))
             
             if not kick_off_time:
-                # Si no hay tiempo, usar fecha actual como fallback
                 logging.warning(f"⚠️ No se encontró hora para el match {match_id}")
                 kick_off_time = datetime.now().isoformat() + 'Z'
             
@@ -207,13 +265,11 @@ class FotMobScraper:
                 
                 match_datetime = datetime.fromisoformat(kick_off_time)
                 
-                # Si no tiene timezone, asumimos UTC
                 if match_datetime.tzinfo is None:
                     match_datetime = match_datetime.replace(tzinfo=pytz.UTC)
                 
             except Exception as e:
                 logging.warning(f"⚠️ Error parseando tiempo {kick_off_time}: {e}")
-                # Fallback a fecha actual
                 match_datetime = datetime.now(pytz.UTC)
             
             # Convertir a zonas horarias
@@ -222,12 +278,10 @@ class FotMobScraper:
             
             # Status del partido
             status_info = fixture.get('status', {})
-            status_code = status_info.get('utcOffsetInHours', fixture.get('status', 0))
             
-            # Mapear status (mobfot usa diferentes códigos)
-            if fixture.get('finished'):
+            if status_info.get('finished'):
                 status = 'finished'
-            elif fixture.get('started') and not fixture.get('finished'):
+            elif status_info.get('started'):
                 status = 'live'  
             else:
                 status = 'scheduled'
@@ -269,9 +323,9 @@ class FotMobScraper:
                 'result': result,
                 'home_score': home_score,
                 'away_score': away_score,
-                'source': 'mobfot',
+                'source': 'mobfot-direct',
                 
-                # DATOS AVANZADOS (si están disponibles)
+                # DATOS AVANZADOS
                 'goalscorers': self._extract_goalscorers(fixture),
                 'cards': self._extract_cards(fixture),
                 'substitutions': self._extract_substitutions(fixture),
@@ -297,7 +351,6 @@ class FotMobScraper:
         goalscorers = []
         
         try:
-            # Buscar en events
             events = fixture.get('events', [])
             for event in events:
                 if event.get('type') == 'goal':
@@ -365,7 +418,6 @@ class FotMobScraper:
         tv_broadcast = []
         
         try:
-            # mobfot puede incluir info de TV en diferentes lugares
             tv_channels = fixture.get('tvChannels', [])
             
             for channel in tv_channels:
@@ -433,8 +485,10 @@ class FotMobScraper:
     def get_detailed_match_info(self, match_id):
         """Obtener información detallada de un partido específico"""
         try:
-            # mobfot puede obtener detalles específicos del match
-            match_details = self.client.get_match(match_id)
+            url = "https://www.fotmob.com/api/matchDetails"
+            params = {'matchId': match_id}
+            
+            match_details = self._make_request(url, params)
             
             if match_details:
                 logging.info(f"✅ Detalles del partido {match_id} obtenidos")
@@ -455,7 +509,14 @@ class FotMobScraper:
         try:
             logging.info(f"📊 Obteniendo estadísticas del team {team_id}...")
             
-            team_data = self.client.get_team(team_id)
+            url = "https://www.fotmob.com/api/teams"
+            params = {
+                'id': team_id,
+                'tab': 'overview',
+                'type': 'team'
+            }
+            
+            team_data = self._make_request(url, params)
             
             if not team_data:
                 return {}
@@ -496,7 +557,7 @@ class FotMobScraper:
             if 'form' in team_data:
                 season_stats['form'] = team_data['form']
             
-            # Top goleadores (si están disponibles)
+            # Top goleadores
             if 'squad' in team_data:
                 top_scorers = []
                 for player in team_data['squad'][:10]:
@@ -517,42 +578,43 @@ class FotMobScraper:
             return {}
 
     def test_connection(self):
-        """Test de conexión con FotMob usando mobfot"""
+        """Test de conexión con FotMob usando API directa"""
         try:
-            logging.info("🧪 Testeando conexión con FotMob (mobfot)...")
+            logging.info("🧪 Testeando conexión con FotMob (API directa)...")
             
             # Test 1: Verificar Team ID
             team_id = self.search_team_id()
             logging.info(f"✅ Team ID verificado: {team_id}")
             
-            # Test 2: Obtener fixtures 
+            # Test 2: Test simple de API
+            url = "https://www.fotmob.com/api/teams"
+            params = {'id': team_id}
+            test_data = self._make_request(url, params)
+            api_working = bool(test_data)
+            
+            # Test 3: Obtener fixtures 
             fixtures = self.get_team_fixtures(team_id)
             logging.info(f"✅ {len(fixtures)} partidos obtenidos")
             
-            # Test 3: Estadísticas del equipo
+            # Test 4: Estadísticas del equipo
             stats = self.get_team_stats(team_id)
             logging.info(f"✅ Estadísticas obtenidas: {len(stats)} campos")
             
-            # Test 4: Probar get_matches_by_date con fecha actual
-            today = datetime.now().strftime('%Y%m%d')
-            today_matches = self.client.get_matches_by_date(today)
-            logging.info(f"✅ Matches de hoy obtenidos: {bool(today_matches)}")
-            
             return {
-                'success': True,
-                'library': 'mobfot v1.4.0',
+                'success': api_working,
+                'library': 'mobfot v1.4.0 + API directa',
                 'team_id': team_id,
                 'fixtures_count': len(fixtures),
                 'sample_fixtures': fixtures[:2] if fixtures else [],
                 'team_stats': stats,
-                'api_working': bool(today_matches)
+                'api_working': api_working
             }
             
         except Exception as e:
             logging.error(f"❌ Error en test de conexión: {e}")
             return {
                 'success': False,
-                'library': 'mobfot v1.4.0',
+                'library': 'mobfot v1.4.0 + API directa',
                 'error': str(e)
             }
 
@@ -564,8 +626,8 @@ if __name__ == "__main__":
         format='%(asctime)s - %(levelname)s - %(message)s'
     )
     
-    print("🏆 MOBFOT SCRAPER - REAL MADRID CASTILLA")
-    print("=" * 50)
+    print("🏆 MOBFOT SCRAPER MEJORADO - REAL MADRID CASTILLA")
+    print("=" * 60)
     
     # Crear scraper
     scraper = FotMobScraper()
@@ -587,6 +649,7 @@ if __name__ == "__main__":
                 print(f"   🏆 {match['competition']}")
                 print(f"   🏟️ {match['venue']}")
                 print(f"   📊 Status: {match['status']}")
+                print(f"   📡 Source: {match['source']}")
                 if match.get('result'):
                     print(f"   ⚽ Resultado: {match['result']}")
                 if match.get('goalscorers'):
