@@ -498,7 +498,7 @@ def get_complete_matches():
     """API de partidos con TODOS los datos"""
     try:
         # Intentar cargar desde BD, si no hay datos usar muestra
-        matches = calendar.load_complete_matches()
+        matches = calendar.fotmob_scraper.get_team_fixtures()
         
         if not matches:
             logging.info("No hay partidos en BD, usando datos de muestra")
