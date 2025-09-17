@@ -80,7 +80,7 @@ class HybridCastillaScraper:
             if match_date.weekday() < 5:
                 match_date += timedelta(days=(5 - match_date.weekday()))
             
-            hour = random.choice([16, 17, 18, 19, 20])
+            hour = random.choice([8, 9, 10, 11, 12])
             match_datetime = match_date.replace(hour=hour, minute=0, second=0)
             madrid_datetime = match_datetime.astimezone(self.timezone_es)
             
@@ -120,7 +120,7 @@ class HybridCastillaScraper:
             days_ahead = 14 + (i * 21) + random.randint(0, 7)
             match_date = today + timedelta(days=days_ahead)
             
-            hour = random.choice([14, 15, 16])
+            hour = random.choice([6, 7, 8])
             match_datetime = match_date.replace(hour=hour, minute=0, second=0)
             madrid_datetime = match_datetime.astimezone(self.timezone_es)
             
