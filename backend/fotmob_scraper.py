@@ -299,7 +299,8 @@ class HybridCastillaScraper:
             }
         ]
         
-        matches.extend(historical_matches)
+        # Insertar partidos históricos AL PRINCIPIO para que tengan prioridad
+        matches = historical_matches + matches
             
         
         return matches
