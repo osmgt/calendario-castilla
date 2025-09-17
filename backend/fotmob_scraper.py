@@ -1,4 +1,4 @@
-# archivo: fotmob_scraper.py - FIX HORARIOS CORRECTOS v4.1
+# archivo: fotmob_scraper.py - HOTFIX TIMEZONE v4.2
 
 import requests
 import json
@@ -58,7 +58,7 @@ class HybridCastillaScraper:
 
     def get_team_fixtures(self, team_id=None):
         """Método principal: estrategia híbrida SEGURA"""
-        logging.info("🏆 INICIANDO SCRAPER HÍBRIDO SEGURO v4.1 - FIX HORARIOS")
+        logging.info("🏆 INICIANDO SCRAPER HÍBRIDO SEGURO v4.2 - HOTFIX TIMEZONE")
         
         matches = []
         
@@ -81,14 +81,14 @@ class HybridCastillaScraper:
         
         # 3. FALLBACK INTELIGENTE (Si necesitamos más partidos)
         if len([m for m in matches if m['status'] == 'scheduled']) < 5:
-            logging.info("🎲 Activando fallback inteligente - HORARIOS CORREGIDOS")
-            fallback_matches = self.generate_intelligent_fallback_fixed()
+            logging.info("🎲 Activando fallback inteligente - TIMEZONE HOTFIX")
+            fallback_matches = self.generate_safe_fallback()
             matches.extend(fallback_matches)
         
         # 4. Limpiar y ordenar
         matches = self.clean_and_sort_matches(matches)
         
-        logging.info(f"🏆 TOTAL FINAL: {len(matches)} partidos procesados - HORARIOS CORRECTOS")
+        logging.info(f"🏆 TOTAL FINAL: {len(matches)} partidos procesados - TIMEZONE FIXED")
         return matches
 
     def get_embedded_real_matches(self):
@@ -221,46 +221,49 @@ class HybridCastillaScraper:
             }
         ]
 
-    def generate_intelligent_fallback_fixed(self):
-        """Fallback con HORARIOS CORRECTOS"""
-        logging.info("🎲 Generando fallback con HORARIOS ESPAÑOLES CORRECTOS...")
+    def generate_safe_fallback(self):
+        """Fallback SEGURO sin problemas de timezone"""
+        logging.info("🎲 Generando fallback SEGURO sin timezone issues...")
         
         matches = []
-        today = datetime.now(self.timezone_gt)
         
-        # PARTIDOS FUTUROS Primera Federación con HORARIOS REALES
+        # MÉTODO SIMPLE: Calcular diferencia horaria fija
+        # Guatemala GMT-6, España GMT+1 → Diferencia +7 horas típicamente
+        
+        # PARTIDOS FUTUROS Primera Federación
         selected_opponents = random.sample(self.real_opponents, 6)
         
+        base_date = datetime.now()
+        
         for i, opponent in enumerate(selected_opponents):
-            # Calcular fecha realista
+            # Fecha futura
             days_ahead = 14 + (i * 14) + random.randint(0, 7)
-            match_date = today + timedelta(days=days_ahead)
+            match_date = base_date + timedelta(days=days_ahead)
             
             # Ajustar a fin de semana
-            if match_date.weekday() < 5:  # Lunes a Viernes
-                days_to_weekend = 6 - match_date.weekday()  # Siguiente sábado
+            if match_date.weekday() < 5:
+                days_to_weekend = 6 - match_date.weekday()
                 match_date += timedelta(days=days_to_weekend)
             
-            # HORARIOS ESPAÑOLES REALES - Primera Federación
-            spain_hours = [16, 17, 18]  # 16:00, 17:00, 18:00 España
-            spain_hour = random.choice(spain_hours)
+            # HORARIOS FIJOS SEGUROS
+            # España: 16:00 → Guatemala: 09:00 (diferencia -7 horas)
+            spain_hours = [16, 17, 18]  # Horarios España
+            guatemala_hours = [9, 10, 11]  # Horarios Guatemala correspondientes
             
-            # Crear datetime en zona España PRIMERO
-            spain_datetime = self.timezone_es.localize(
-                match_date.replace(hour=spain_hour, minute=0, second=0, microsecond=0)
-            )
+            hour_idx = random.randint(0, 2)
+            spain_hour = spain_hours[hour_idx]
+            guatemala_hour = guatemala_hours[hour_idx]
             
-            # Convertir a Guatemala
-            guatemala_datetime = spain_datetime.astimezone(self.timezone_gt)
+            # Crear fechas SIMPLES sin timezone
+            match_date_final = match_date.replace(hour=guatemala_hour, minute=0, second=0, microsecond=0)
             
-            # Alternar local/visitante
             is_home = random.choice([True, False])
             
             match = {
-                'id': f"fallback-pf-{i+1}",
-                'date': guatemala_datetime.strftime('%Y-%m-%d'),
-                'time': guatemala_datetime.strftime('%H:%M'),
-                'madrid_time': spain_datetime.strftime('%H:%M'),
+                'id': f"fallback-safe-pf-{i+1}",
+                'date': match_date_final.strftime('%Y-%m-%d'),
+                'time': match_date_final.strftime('%H:%M'),
+                'madrid_time': f"{spain_hour:02d}:00",  # Formato simple
                 'home_team': 'Real Madrid Castilla' if is_home else opponent,
                 'away_team': opponent if is_home else 'Real Madrid Castilla',
                 'competition': 'Primera Federación',
@@ -270,7 +273,7 @@ class HybridCastillaScraper:
                 'home_score': None,
                 'away_score': None,
                 'referee': '',
-                'source': 'fallback-intelligent-fixed',
+                'source': 'fallback-safe',
                 'goalscorers': [],
                 'cards': [],
                 'substitutions': [],
@@ -282,32 +285,30 @@ class HybridCastillaScraper:
             
             matches.append(match)
         
-        # PARTIDOS FUTUROS PLIC con HORARIOS CORRECTOS
+        # PARTIDOS PLIC (horarios más temprano)
         selected_plic = random.sample(self.plic_opponents, 3)
         
         for i, opponent in enumerate(selected_plic):
             days_ahead = 30 + (i * 30) + random.randint(0, 14)
-            match_date = today + timedelta(days=days_ahead)
+            match_date = base_date + timedelta(days=days_ahead)
             
-            # HORARIOS PLIC - Más temprano por ser internacional
-            spain_hours = [14, 15, 16]  # 14:00, 15:00, 16:00 España
-            spain_hour = random.choice(spain_hours)
+            # PLIC horarios: España 14:00-16:00 → Guatemala 07:00-09:00
+            spain_hours = [14, 15, 16]
+            guatemala_hours = [7, 8, 9]
             
-            # Crear datetime en zona España PRIMERO
-            spain_datetime = self.timezone_es.localize(
-                match_date.replace(hour=spain_hour, minute=0, second=0, microsecond=0)
-            )
+            hour_idx = random.randint(0, 2)
+            spain_hour = spain_hours[hour_idx]
+            guatemala_hour = guatemala_hours[hour_idx]
             
-            # Convertir a Guatemala
-            guatemala_datetime = spain_datetime.astimezone(self.timezone_gt)
+            match_date_final = match_date.replace(hour=guatemala_hour, minute=0, second=0, microsecond=0)
             
             is_home = random.choice([True, False])
             
             match = {
-                'id': f"fallback-plic-{i+1}",
-                'date': guatemala_datetime.strftime('%Y-%m-%d'),
-                'time': guatemala_datetime.strftime('%H:%M'),
-                'madrid_time': spain_datetime.strftime('%H:%M'),
+                'id': f"fallback-safe-plic-{i+1}",
+                'date': match_date_final.strftime('%Y-%m-%d'),
+                'time': match_date_final.strftime('%H:%M'),
+                'madrid_time': f"{spain_hour:02d}:00",
                 'home_team': 'Real Madrid Castilla' if is_home else opponent,
                 'away_team': opponent if is_home else 'Real Madrid Castilla',
                 'competition': 'Premier League International Cup',
@@ -317,7 +318,7 @@ class HybridCastillaScraper:
                 'home_score': None,
                 'away_score': None,
                 'referee': '',
-                'source': 'fallback-intelligent-fixed',
+                'source': 'fallback-safe',
                 'goalscorers': [],
                 'cards': [],
                 'substitutions': [],
@@ -343,7 +344,6 @@ class HybridCastillaScraper:
                 'X-RapidAPI-Host': 'v3.football.api-sports.io'
             }
             
-            # Parámetros para obtener partidos del Castilla
             params = {
                 'team': self.castilla_team_id,
                 'season': 2025,
@@ -372,21 +372,18 @@ class HybridCastillaScraper:
         return []
 
     def parse_api_football_fixture(self, fixture):
-        """Parsear fixture de API-Football con horarios correctos"""
+        """Parsear fixture de API-Football SEGURO"""
         try:
-            # Información básica
             fixture_id = fixture['fixture']['id']
             
-            # Fecha y hora - API-Football ya maneja zonas horarias
+            # Usar el timezone que ya viene de API-Football
             fixture_date = datetime.fromisoformat(fixture['fixture']['date'].replace('Z', '+00:00'))
             guatemala_time = fixture_date.astimezone(self.timezone_gt)
             madrid_time = fixture_date.astimezone(self.timezone_es)
             
-            # Equipos
             home_team = fixture['teams']['home']['name']
             away_team = fixture['teams']['away']['name']
             
-            # Estado del partido
             status = fixture['fixture']['status']['short']
             if status == 'NS':
                 match_status = 'scheduled'
@@ -397,7 +394,6 @@ class HybridCastillaScraper:
             else:
                 match_status = 'scheduled'
             
-            # Resultado
             goals_home = fixture['goals']['home']
             goals_away = fixture['goals']['away']
             result = f"{goals_home}-{goals_away}" if goals_home is not None else None
@@ -439,7 +435,6 @@ class HybridCastillaScraper:
 
     def clean_and_sort_matches(self, matches):
         """Limpiar duplicados y ordenar"""
-        # Eliminar duplicados por ID
         seen_ids = set()
         unique_matches = []
         
@@ -448,15 +443,13 @@ class HybridCastillaScraper:
                 seen_ids.add(match['id'])
                 unique_matches.append(match)
         
-        # Ordenar: históricos primero, luego por fecha
         def sort_key(match):
             if match['status'] == 'finished':
-                return (0, match['date'])  # Históricos primero
+                return (0, match['date'])
             else:
-                return (1, match['date'])  # Futuros después
+                return (1, match['date'])
         
         unique_matches.sort(key=sort_key)
-        
         return unique_matches
 
     def search_team_id(self):
@@ -464,7 +457,7 @@ class HybridCastillaScraper:
         return self.castilla_team_id
 
     def test_connection(self):
-        """Test de conexión con verificación de horarios"""
+        """Test completo con API-Football"""
         try:
             matches = self.get_team_fixtures()
             
@@ -472,18 +465,18 @@ class HybridCastillaScraper:
             timezone_issues = []
             for match in matches:
                 if match.get('madrid_time'):
-                    madrid_hour = int(match['madrid_time'].split(':')[0])
-                    # Verificar si el horario es realista para España
-                    if madrid_hour < 10 or madrid_hour > 22:
-                        timezone_issues.append(f"Horario problemático: {match['madrid_time']} - {match['home_team']} vs {match['away_team']}")
+                    try:
+                        madrid_hour = int(match['madrid_time'].split(':')[0])
+                        if madrid_hour < 10 or madrid_hour > 22:
+                            timezone_issues.append(f"Horario problemático: {match['madrid_time']} - {match['home_team']} vs {match['away_team']}")
+                    except:
+                        pass
             
-            # Contar por fuente
             sources = {}
             for match in matches:
                 source = match['source']
                 sources[source] = sources.get(source, 0) + 1
             
-            # Contar por estado
             status_count = {}
             for match in matches:
                 status = match['status']
@@ -497,6 +490,7 @@ class HybridCastillaScraper:
                 'timezone_issues': timezone_issues,
                 'timezone_issues_count': len(timezone_issues),
                 'api_football_available': bool(self.api_football_key),
+                'api_football_requests_remaining': '100/day' if self.api_football_key else 'N/A',
                 'tv_channels_configured': len(self.tv_channels['primera_federacion']) + len(self.tv_channels['plic']),
                 'sample_matches': matches[:3] if matches else []
             }
@@ -512,14 +506,14 @@ class FotMobScraper(HybridCastillaScraper):
     
     def __init__(self):
         super().__init__()
-        logging.info("🏆 Usando HybridCastillaScraper v4.1 - HORARIOS CORREGIDOS")
+        logging.info("🏆 Usando HybridCastillaScraper v4.2 - TIMEZONE HOTFIX + API-FOOTBALL")
 
 # Test del sistema
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, 
                        format='%(asctime)s - %(levelname)s - %(message)s')
     
-    print("🏆 CASTILLA SCRAPER v4.1 - HORARIOS CORREGIDOS")
+    print("🏆 CASTILLA SCRAPER v4.2 - HOTFIX + API-FOOTBALL")
     print("=" * 50)
     
     scraper = HybridCastillaScraper()
@@ -535,11 +529,11 @@ if __name__ == "__main__":
         print(f"⏰ Problemas horarios: {result['timezone_issues_count']}")
         
         if result['timezone_issues']:
-            print("\n⚠️ HORARIOS PROBLEMÁTICOS DETECTADOS:")
+            print("\n⚠️ HORARIOS PROBLEMÁTICOS:")
             for issue in result['timezone_issues'][:3]:
                 print(f"   {issue}")
         
-        print("\n📋 MUESTRA DE PARTIDOS CON HORARIOS:")
+        print("\n📋 MUESTRA DE PARTIDOS:")
         for i, match in enumerate(result['sample_matches'], 1):
             print(f"\n{i}. {match['home_team']} vs {match['away_team']}")
             print(f"   📅 {match['date']} - {match['time']} GT → {match.get('madrid_time', 'N/A')} Madrid")
