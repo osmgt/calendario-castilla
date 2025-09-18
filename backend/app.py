@@ -533,7 +533,7 @@ def get_complete_matches():
 def get_next_match():
     """Próximo partido"""
     try:
-        matches = calendar.load_complete_matches()
+        matches = calendar.fotmob_scraper.get_team_fixtures()
         
         if not matches:
             matches = calendar.get_sample_data()
@@ -589,10 +589,8 @@ def force_update():
 def get_calendar():
     """Endpoint del calendario ICS"""
     try:
-        matches = calendar.load_complete_matches()
+        matches = calendar.fotmob_scraper.get_team_fixtures()
         
-        if not matches:
-            matches = calendar.get_sample_data()
         
         ics_lines = [
             "BEGIN:VCALENDAR",
