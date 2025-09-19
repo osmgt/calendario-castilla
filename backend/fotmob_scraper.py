@@ -82,9 +82,9 @@ class FotMobScraper:
         all_matches.extend(confirmed_matches)
         
         # Generar partidos realistas adicionales si es necesario
-        if len(all_matches) < 15:
-            additional_matches = self.generate_realistic_matches(15 - len(all_matches))
-            all_matches.extend(additional_matches)
+        #if len(all_matches) < 15:
+         #   additional_matches = self.generate_realistic_matches(15 - len(all_matches))
+          #  all_matches.extend(additional_matches)
         
         # Limpiar duplicados y ordenar
         unique_matches = self.remove_duplicates(all_matches)
