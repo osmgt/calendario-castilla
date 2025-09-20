@@ -12,27 +12,37 @@ def scrape_matches():
 
     matches = []
 
-    # Cada fila de la tabla de partidos
     for row in soup.select("div.responsive-table table tbody tr"):
         cols = row.find_all("td")
-        if len(cols) < 5:
+        if not cols or len(cols) < 5:
             continue
 
         try:
+            # Fecha
             date_text = cols[0].get_text(strip=True)
             time_text = cols[1].get_text(strip=True)
-            home_team = cols[2].get_text(strip=True)
-            away_team = cols[4].get_text(strip=True)
-            result = cols[5].get_text(strip=True)
 
-            # Fecha + hora en UTC
-            if time_text and ":" in time_text:
-                dt = datetime.strptime(f"{date_text} {time_text}", "%d/%m/%Y %H:%M")
-                utcDate = pytz.timezone("Europe/Madrid").localize(dt).astimezone(pytz.UTC)
-            else:
-                dt = datetime.strptime(date_text, "%d/%m/%Y")
-                utcDate = pytz.timezone("Europe/Madrid").localize(dt).astimezone(pytz.UTC)
+            # Equipos (según Transfermarkt: col[2] = home, col[4] = away)
+            home_team = cols[2].get_text(strip=True) if len(cols) > 2 else None
+            away_team = cols[4].get_text(strip=True) if len(cols) > 4 else None
 
+            # Resultado (a veces vacío)
+            result = cols[5].get_text(strip=True) if len(cols) > 5 else ""
+
+            if not home_team or not away_team:
+                continue
+
+            # Convertir fecha/hora → UTC
+            try:
+                if time_text and ":" in time_text:
+                    dt = datetime.strptime(f"{date_text} {time_text}", "%d/%m/%Y %H:%M")
+                else:
+                    dt = datetime.strptime(date_text, "%d/%m/%Y")
+                utcDate = pytz.timezone("Europe/Madrid").localize(dt).astimezone(pytz.UTC)
+            except Exception:
+                continue
+
+            # Crear objeto partido
             match = {
                 "utcDate": utcDate.isoformat(),
                 "homeTeam": home_team,
@@ -62,3 +72,4 @@ def scrape_matches():
 if __name__ == "__main__":
     data = scrape_matches()
     print(data)
+
