@@ -615,7 +615,7 @@
             return `
                 <div class="match-card">
                     <div class="match-date">
-                        📅 ${formatDate(new Date(match.utcDate).toLocaleDateString('es-GT'))} - ${new Date(match.utcDate).toLocaleTimeString('es-GT', { hour: '2-digit', minute: '2-digit' })} GT
+                        📅 ${formatDate(match.date)} - ${match.time} GT
                     </div>
                     <div class="match-teams">
                         ${match.homeTeam} vs ${match.awayTeam}
