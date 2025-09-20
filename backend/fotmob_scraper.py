@@ -91,7 +91,7 @@ class FotMobScraper:
         final_matches = sorted(unique_matches, key=lambda x: x['date'])
         
         logging.info(f"✅ Total partidos obtenidos: {len(final_matches)}")
-        return final_matches
+        return self.normalize_matches(final_matches)
 
     def extract_matches(self, soup):
         """Extraer partidos de la página de Transfermarkt"""
@@ -460,6 +460,47 @@ class FotMobScraper:
             unique_matches.append(match)
         
         return unique_matches
+
+    
+    def normalize_matches(self, matches):
+        """Normalizar partidos para frontend"""
+        normalized = []
+        for m in matches:
+            # Combinar fecha + hora Guatemala en UTC ISO
+            try:
+                dt = datetime.strptime(f"{m['date']} {m['time']}", "%Y-%m-%d %H:%M")
+                dt_gt = self.timezone_gt.localize(dt)
+                utc_date = dt_gt.astimezone(pytz.UTC).isoformat()
+            except Exception:
+                utc_date = None
+
+            # Normalizar estado
+            status = (m.get("status") or "").upper()
+            if status not in ["SCHEDULED", "FINISHED", "LIVE"]:
+                status = "SCHEDULED"
+
+            # Construir nuevo objeto
+            normalized.append({
+                "id": m.get("id"),
+                "utcDate": utc_date,
+                "homeTeam": m.get("home_team"),
+                "awayTeam": m.get("away_team"),
+                "competition": m.get("competition"),
+                "venue": m.get("venue"),
+                "status": status,
+                "score": {
+                    "fullTime": {
+                        "home": m.get("home_score"),
+                        "away": m.get("away_score"),
+                    }
+                },
+                "source": m.get("source"),
+                "referee": m.get("referee"),
+                "attendance": m.get("attendance"),
+                "tv_broadcast": m.get("tv_broadcast"),
+                "weather": m.get("weather"),
+            })
+        return normalized
 
     def test_connection(self):
         """Test de funcionamiento"""
