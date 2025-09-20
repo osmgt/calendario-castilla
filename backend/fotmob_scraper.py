@@ -72,11 +72,17 @@ def scrape_matches():
 # --- 🔹 Parche de compatibilidad con app.py ---
 class FotMobScraper:
     def get_matches(self):
+        """Compatibilidad con código viejo"""
+        return scrape_matches()
+
+    def get_team_fixtures(self, team=None, season=None):
+        """
+        Compatibilidad con app.py:
+        Ignora parámetros y devuelve scrape_matches().
+        """
         return scrape_matches()
 
 
 if __name__ == "__main__":
     data = scrape_matches()
     print(data)
-
-
