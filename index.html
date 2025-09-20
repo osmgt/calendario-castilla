@@ -588,12 +588,12 @@
                     if (timeInfo.es_live) {
                         nextMatchElement.innerHTML = `
                             <div style="color: #d32f2f;">🔴 EN VIVO</div>
-                            <div style="font-size: 0.8em;">${match.home_team} vs ${match.away_team}</div>
+                            <div style="font-size: 0.8em;">${match.homeTeam} vs ${match.awayTeam}</div>
                         `;
                     } else {
                         nextMatchElement.innerHTML = `
                             <div>${timeInfo.tiempo_restante}</div>
-                            <div style="font-size: 0.8em;">${match.home_team} vs ${match.away_team}</div>
+                            <div style="font-size: 0.8em;">${match.homeTeam} vs ${match.awayTeam}</div>
                         `;
                     }
                 } else {
@@ -615,10 +615,10 @@
             return `
                 <div class="match-card">
                     <div class="match-date">
-                        📅 ${formatDate(match.date)} - ${match.time} GT
+                        📅 ${formatDate(new Date(match.utcDate).toLocaleDateString('es-GT'))} - ${new Date(match.utcDate).toLocaleTimeString('es-GT', { hour: '2-digit', minute: '2-digit' })} GT
                     </div>
                     <div class="match-teams">
-                        ${match.home_team} vs ${match.away_team}
+                        ${match.homeTeam} vs ${match.awayTeam}
                     </div>
                     <div class="match-details">
                         <div><strong>🏆</strong> ${match.competition}</div>
