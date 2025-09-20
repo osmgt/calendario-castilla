@@ -18,21 +18,21 @@ def scrape_matches():
             continue
 
         try:
-            # Fecha
+            # Fecha y hora
             date_text = cols[0].get_text(strip=True)
             time_text = cols[1].get_text(strip=True)
 
-            # Equipos (según Transfermarkt: col[2] = home, col[4] = away)
+            # Equipos
             home_team = cols[2].get_text(strip=True) if len(cols) > 2 else None
             away_team = cols[4].get_text(strip=True) if len(cols) > 4 else None
 
-            # Resultado (a veces vacío)
+            # Resultado (puede estar vacío)
             result = cols[5].get_text(strip=True) if len(cols) > 5 else ""
 
             if not home_team or not away_team:
                 continue
 
-            # Convertir fecha/hora → UTC
+            # Convertir fecha/hora a UTC
             try:
                 if time_text and ":" in time_text:
                     dt = datetime.strptime(f"{date_text} {time_text}", "%d/%m/%Y %H:%M")
@@ -42,7 +42,6 @@ def scrape_matches():
             except Exception:
                 continue
 
-            # Crear objeto partido
             match = {
                 "utcDate": utcDate.isoformat(),
                 "homeTeam": home_team,
@@ -64,12 +63,20 @@ def scrape_matches():
             if not any(m for m in matches if f"{m['utcDate']}-{m['homeTeam']}-{m['awayTeam']}" == key):
                 matches.append(match)
 
-        except Exception as e:
+        except Exception:
             continue
 
     return matches
 
+
+# --- 🔹 Parche de compatibilidad con app.py ---
+class FotMobScraper:
+    def get_matches(self):
+        return scrape_matches()
+
+
 if __name__ == "__main__":
     data = scrape_matches()
     print(data)
+
 
